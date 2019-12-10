@@ -1,9 +1,9 @@
 # Problock3
 A SOS Driver for Prodos block mode cards. 
 
-This SOS block driver interfaces with Apple cards that use the Prodos block mode compatible firmware. The idea came about after I purchased a Booti card and was looking to use this in my Apple ///. I had some discussions with the designers about using the block mode interface, but thought the screenholes would be an issue. The Apple /// uses these for font loading and does not allow them for card firmware use.
+This SOS block driver interfaces with Apple cards that use the Prodos block mode compatible firmware. The idea came about after I purchased a Booti card and was looking to use this in my Apple ///. I had some discussions with the designers about they wondered about using the block mode interface, but thought the screenholes would be an issue. The Apple /// uses these for font loading and does not allow them for card firmware use.
 
-##Details
+## Details
 This driver does the following to try and setup an environment for the card fimrware to allow it to work without interfering with SOS.
 Before calling the firmware on the card:
 - saves the screenholes and loads in the card firmware ones (current slot and slot0)
@@ -17,17 +17,21 @@ If the driver slot is configured with $FF (default), then the driver scans the s
 
 For a card to work with this driver, it needs to use Indirect Indexed addressing ( (zp),Y ) to copy the data to and from the buffer. This is required as SOS uses the A3 extended addressing for the buffer pointer in the driver call. Most cards firmware seem to use this.
 
-##Compatibilty
+## Compatibilty
 This has been tested with the following cards
 
 | Card | Comments |
 | --- | --- |
-| CFFA v1.3 | Card needs to be formatted for Apple2 mode, which means 32mb partioions which are problematic with SOS. In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well |
+| CFFA v2 | The Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well |
 | Booti | Set to block mode |
-| CFFA3000 | Works ok booting Selector and sysutils, but will not work with BOS for some reason |
+| CFFA3000 | Works ok booting Selector and sysutils, but will not work with BOS for some as yet undetermined reason |
 | Focus | Only tested with the MAME emulation |
 
-##Build
+## Build
 The driver is built via the ca65 assembler and a3driverutil.
 
-Disk images included in the release for Apple/// System Utilities, Selector and BOS.
+## Release
+Disk images with the driver setup for slot autoscan included in the release section for the following:
+  Apple/// System Utilities
+  Selector boot (and selector HD image)
+  BOS Boot (and cffa2 HD image for BOS from apple3rtr)
