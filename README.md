@@ -22,7 +22,7 @@ This has been tested with the following cards
 
 | Card | Comments |
 | --- | --- |
-| CFFA v1.3 | The Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well |
+| CFFA v1.3 | The CF Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. |
 | CFFA v2 | Only tested with MAME emulation. The Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. . In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well |
 | Booti | Tested with the card set to block mode |
 | CFFA3000 | Works ok booting Selector and sysutils, but will not work with BOS for some as yet undetermined reason |
