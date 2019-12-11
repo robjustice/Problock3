@@ -1,10 +1,10 @@
 # Problock3
 A SOS Driver for Prodos block mode cards. 
 
-This SOS block driver interfaces with Apple cards that use the Prodos block mode compatible firmware. The idea came about after I purchased a Booti card and was looking to use this in my Apple ///. I had some discussions with the designers about they wondered about using the block mode interface, but thought the screenholes would be an issue. The Apple /// uses these for font loading and does not allow them for card firmware use.
+This SOS block driver interfaces with Apple cards that use the Prodos block mode compatible firmware. The idea came about after I purchased a Booti card and was looking to use this in my Apple ///. I had some discussions with the designers and they wondered about using the block mode interface. We thought the screenholes would be an issue. The Apple /// uses these for font loading and does not allow them for card firmware use.
 
 ## Details
-This driver does the following to try and setup an environment for the card fimrware to allow it to work without interfering with SOS.
+This driver does the following to try and setup an environment for the card firmware to allow it to work without interfering with SOS.
 Before calling the firmware on the card:
 - saves the screenholes and loads in the card firmware ones (current slot and slot0)
 - save zeropage $20-$4f
@@ -22,8 +22,9 @@ This has been tested with the following cards
 
 | Card | Comments |
 | --- | --- |
-| CFFA v2 | The Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well |
-| Booti | Set to block mode |
+| CFFA v1.3 | The Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well |
+| CFFA v2 | Only tested with MAME emulation. The Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. . In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well |
+| Booti | Tested with the card set to block mode |
 | CFFA3000 | Works ok booting Selector and sysutils, but will not work with BOS for some as yet undetermined reason |
 | Focus | Only tested with the MAME emulation |
 
