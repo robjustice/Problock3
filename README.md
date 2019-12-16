@@ -28,6 +28,8 @@ This has been tested with the following cards
 | CFFA3000 | Works ok booting Selector and sysutils, but will not work with BOS for some as yet undetermined reason |
 | Focus | Only tested with the MAME emulation |
 
+Note: the card setup using its own firmware to select harddisk images will need to be performed on an Apple2, or using the A2emulation on the Apple3. Once you have the images setup, then it should work ok in Apple3 mode.
+
 ## Build
 The driver is built via the ca65 assembler and a3driverutil.
 
