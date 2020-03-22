@@ -36,9 +36,4 @@ Note: the card setup using its own firmware to select harddisk images will need 
 The driver is built via the ca65 assembler and a3driverutil.
 
 ## Release
-Disk images with the driver setup for slot autoscan included in the release section for the following:
-  Apple/// System Utilities
-  Selector boot (and selector HD image)
-  Selector boot with desktopmanager driver included (and selector HD image)
-  BOS Boot (and cffa2 HD image for BOS from apple3rtr)
-  BOS Boot with desktopmanager driver included (need to use bos_hd.po HD image)
+Disk images with the driver setup for slot autoscan included in the release section for the following: Apple/// System Utilities Selector boot (and selector HD image) BOS Boot (and cffa2 HD image for BOS from apple3rtr)
