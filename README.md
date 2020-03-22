@@ -15,7 +15,7 @@ On return from the firmware call, it restores these saved values.
 
 If the driver slot is configured with $FF (default), then the driver scans the slots from 4 to 1 looking for the Prodos firmware signature. The first one it finds, it updates the DIBs with this slot and uses that until the next boot. If you want to use a specific slot, then if the driver slot is set to 1 to 4, then that specific slot will be used.
 
-For a card to work with this driver, it needs to use Indirect Indexed addressing ( (zp),Y ) to copy the data to and from the buffer. This is required as SOS uses the A3 extended addressing for the buffer pointer in the driver call. Most cards firmware seem to use this.
+This updated version converts the Enhanced indirect buffer pointer to a bank and offset within the bank. This is to allow cards that are not using Indirect Indexed addressing ( (zp),Y ) to move the buffer data to work. It moves a section of code to a low memory address that never gets bank switched, and then calls the card firmware from there. On return from the Card firmware, it then restores the driver bank and returns back to the driver code. This is modeled off the Profile driver.
 
 ## Compatibilty
 This has been tested with the following cards
@@ -24,9 +24,11 @@ This has been tested with the following cards
 | --- | --- |
 | CFFA v1.3 | The CF Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. |
 | CFFA v2 | Only tested with MAME emulation. The CF Card needs to be formatted for Apple2 mode. This means 32mb partitions which are problematic with SOS. . In MAME, if you use the option to mount a 16mb .2mg or .po image directly, then it works well. eg mame64 apple3 -flop1 bosboot_pb3.dsk -sl1 cffa2 -hard bos_hd.po |
-| Booti | Tested with the card set to block mode |
-| CFFA3000 | Works ok booting Selector and sysutils, but will not work with BOS for some as yet undetermined reason |
+| Booti | Works ok for all images, tested with the card set to block mode |
+| CFFA3000 | Works ok for all images |
 | Focus | Only tested with the MAME emulation |
+| Liron & UniDisk 3.5 | tested as an extra disk in combo with selector on the CFFA3k, seems to work ok |
+
 
 Note: the card setup using its own firmware to select harddisk images will need to be performed on an Apple2, or using the A2emulation on the Apple3. Once you have the images setup, then it should work ok in Apple3 mode.
 
@@ -37,4 +39,6 @@ The driver is built via the ca65 assembler and a3driverutil.
 Disk images with the driver setup for slot autoscan included in the release section for the following:
   Apple/// System Utilities
   Selector boot (and selector HD image)
+  Selector boot with desktopmanager driver included (and selector HD image)
   BOS Boot (and cffa2 HD image for BOS from apple3rtr)
+  BOS Boot with desktopmanager driver included (need to use bos_hd.po HD image)
