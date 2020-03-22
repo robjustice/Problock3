@@ -15,6 +15,14 @@
 ; - tries to detect if there is any font loading underway and waits if there is
 ;   so as not to corrupt the font
 ;
+; - this version converts the extended indirect buffer pointer to a bank and 
+;   offset within the bank. It moves a section of code to a low mem address
+;   that never gets bank switched, and then calls the card firmware from there.
+;   on return from the firmware, it then restores the driver bank and returns
+;   to the driver code
+;   This is modeled off the Profile driver
+;   This allows cards that use absolute indexed addressing to work (CFFA3000 & Liron)
+;
 ;
 ;            .TITLE "Apple /// Prodos Block Mode Driver"
             .PROC  Problock
@@ -22,12 +30,18 @@
             .setcpu "6502"
             .reloc
 
-DriverVersion   = $004B      ; Version number
+DriverVersion   = $005B      ; Version number
 DriverMfgr      = $524A      ; Driver Manufacturer - RJ
 DriverType      = $E1        ; No formatter present for the time being
 DriverSubtype   = $02        ;
 ScanStart       = $04        ; Slot number to start scan from
 AutoScan        = $FF        ; Auto scan slots
+
+Do_PDCall       = $18F0      ; place to reloc code for bank switching
+                             ; Profile driver uses 18f0 for similiar function
+                             ; copied from there
+IndSP           = $F0        ; Code moved here (actually 18F0, current zeropage)
+
 
 ;
 ; SOS Equates
@@ -40,8 +54,11 @@ SysErr      = $1928          ; Report error to system
 EReg        = $FFDF          ; Environment register
 E_IFR       = $FFED          ; VIA E Interrupt Flag Register
 E_IER       = $FFEE          ; VIA E Interrupt Enable Register
+Bank_Reg    = $FFEF          ; Bank register
 CWrtOff     = $C0DA          ; Character loading off
 CWrtOn      = $C0DB          ; Character loading on
+E1908       = $1908          ;GLOBAL FLAG FOR MOUSE DRIVER
+                             ;TO SAY WE CANNOT BE INTERRUPTED
 
 
 ;
@@ -68,6 +85,7 @@ Count       = $E3            ; 2 bytes lb,hb
 ;
 ScreenBase  = $E5            ; 2 bytes lb,hb for save/restore screenholes
 Pointer     = $E7            ; 2 byte pointer for signature check
+CurrBank    = $E9            ; current bank (needs to be out of bank switching memory)
 
 ;
 ; SOS Error Codes
@@ -194,6 +212,12 @@ ProBufOff   = $44                       ; buffer pointer - $44
 Signature:  .byte $FF, $20, $FF, $00    ; Disk card signature for disk controller
             .byte $FF, $03
 
+ProBank:    .byte   $00                 ; destination bank for block data
+Offset:     .byte   $00
+
+xbytetmp:   .byte   $00                 ; save xbyte
+
+
 ;------------------------------------
 ;
 ; Driver request handlers
@@ -251,7 +275,8 @@ NoDevice:   lda     #XDNFERR            ; Device not found
 ; on first entry we search the slots from 4 to 1 for a block devices 
 ; and use the first one we find
 ;
-DInit:      lda     CardIsOK            ; Check if we have checked for a card already
+DInit:
+            lda     CardIsOK            ; Check if we have checked for a card already
             bne     FoundCard           ; Yes, skip signature check
 
 CheckSig:
@@ -305,12 +330,16 @@ Match:      sta     ProDrvAdr+1         ; Set card driver entry low byte
             jsr     AllocSIR            ; Claim SIR
             bcs     NoDevice   
 
-FoundCard:                              ; Lets get volume size            
+FoundCard:  
+			jsr     MoveCode            ; Move code to page 18 for call to device firmware
+                                        ; Lets get volume size            
             lda     #$00                ; 0=status
             sta     ProCommand          ; Command for blockdriver
             jsr     SetProUnit          ; set unitnumber
+            lda     Bank_Reg
+            sta     ProBank
             jsr     ProDriver           ; call driver
-            bcs     NoDevice
+            bcs     NoDevice2
             lda     ProUnit             ; determine which unit
             bmi     Unit1            
             stx     DIB1_Blks
@@ -322,6 +351,9 @@ Unit1:      stx     DIB2_Blks
             sty     DIB2_Blks+1
             clc
             rts
+
+NoDevice2:  lda     #XDNFERR            ; Device not found
+            jsr     SysErr              ; Return to SOS with error in A
 
 ;
 ; D_READ call processing
@@ -344,23 +376,21 @@ DReadGo:
             lda     Num_Blks            ; Check for block count greater than zero
             beq     ReadExit
             jsr     FixUp               ; Correct for addressing anomalies
+			jsr     MoveCode            ; Move code to page 18 for call to device
             lda     #$01                ; 1=read
             sta     ProCommand          ; Prepare to read a block
             lda     SosBlk
             sta     ProBlock
             lda     SosBlk+1
             sta     ProBlock+1
-
+            lda     ProBufOff+ExtPG     ; save xbyte
+            sta     xbytetmp
             
-ReadOne:    lda     SosBuf              ; copy buffer pointer
-            sta     ProBuf
-            lda     SosBuf+1
-            sta     ProBuf+1
-            lda     SosBuf+ExtPG        ; xbyte, assume card firmware uses ( ),Y addressing
-            sta     ProBufOff+ExtPG     ; if not, it's not going to work :-(
-
+ReadOne:    jsr     SetProBuf           ; set Prodos buffer pointer
+                                        ; This saves the overlap if needed
             jsr     ProDriver           ; call card prodos firmware interface
             bcs     IO_Error
+            jsr     CheckSwap           ; Check for the overlap case and swap if needed
 
             inc     Count+1             ; increment our byte count by 512
             inc     Count+1
@@ -380,6 +410,8 @@ SkipReadMSBIncrement:
             sta     (QtyRead),Y
             clc
 ReadExit:
+            lda     xbytetmp            ; restore xbyte
+            sta     ProBufOff+ExtPG
             rts                         ; Exit read routines
 
 IO_Error:   lda     #XIOERROR           ; I/O error
@@ -400,22 +432,21 @@ DWriteGo:
             lda     Num_Blks            ; Check for block count greater than zero
             beq     WriteExit
             jsr     FixUp               ; Correct for addressing anomalies
+  			jsr     MoveCode            ; Move code to page 18 for call to device
             lda     #$02                ; 2=write
             sta     ProCommand
             lda     SosBlk
             sta     ProBlock
             lda     SosBlk+1
             sta     ProBlock+1
+            lda     ProBufOff+ExtPG     ; save xbyte
+            sta     xbytetmp
 
-WriteOne:   lda     SosBuf              ; copy buffer pointer to prodos interface
-            sta     ProBuf
-            lda     SosBuf+1
-            sta     ProBuf+1
-            lda     SosBuf+ExtPG        ; xbyte, assume card firmware uses ( ),Y addressing
-            sta     ProBufOff+ExtPG     ; if not, it's not going to work :-(
-
+WriteOne:   jsr     SetProBuf           ; set Prodos buffer pointer
+            
             jsr     ProDriver           ; call card prodos firmware interface
             bcs     IO_Error
+            jsr     CheckSwap           ; Check for the overlap case and swap if needed
 
             inc     ProBlock            ; Bump the block number
             bne     SkipWriteMSBIncrement
@@ -427,6 +458,8 @@ SkipWriteMSBIncrement:
             bne     WriteOne
             clc
 WriteExit:
+            lda     xbytetmp            ; restore xbyte
+            sta     ProBufOff+ExtPG
             rts
 
 ;
@@ -589,20 +622,243 @@ GoFast:     pha
             rts
 
 ;
+; Set Prodos buffer pointer
+;
+SetProBuf:
+            ldx     Bank_Reg            ; get current bank for later
+            bit     SosBuf+ExtPG        ; Check if extended addressing is enabled (xbyte bit7=1)
+            bpl     NoExtAddr           ; No, just copy the buffer pointer in and return
+            lda     SosBuf+ExtPG        ; get the bank pair
+            and     #$0f
+            cmp     #$0f                ; check for special case xbyte=8F
+            bne     nextchk            
+            ldx     #0                  ; yes, xbyte=8F, then set bank 0
+            beq     NoExtAddr           ; and keep pointers as is
+
+nextchk:    bit     SosBuf+1            ; Check if high bit is set to determine required bank
+            bpl     lowbank
+            clc
+            adc     #1                  ; increment bank
+lowbank:    tax                         ; keep bank in x
+            lda     SosBuf+1
+            cmp     #$7e                ; Check for the overlap case
+            bcc     BufOk               ; <7e = ok
+            beq     Chklsb1             ; =7e then check lsb
+            cmp     #$7f
+            beq     OlapCase            ; =7f then its an overlap case
+            bne     BufOk               ; then must be ok
+            
+Chklsb1:    lda     SosBuf              ; get SosBuf lsb
+            bne     OlapCase            ; !=0 means an overlap case
+            lda     SosBuf+1
+
+BufOk:      and     #$7f                ; mask of high bit
+            clc
+            adc     #$20                ; and add offset for start of bank $20 to high byte
+            bne     SetBuf              ; always branch (skip the lda SosBuf+1)
+            
+NoExtAddr:  lda     SosBuf+1            ; setup ProBuf
+SetBuf:     sta     ProBuf+1
+            lda     SosBuf            
+            sta     ProBuf
+            lda     #0                  ; turn off extended addressing
+            sta     ProBufOff+ExtPG
+            txa
+            ora     #$f0
+            tax
+            stx     ProBank             ; store required bank
+            rts
+;
+; No overlap into System Bank
+; 
+;  7E00 -----      9E00 -----  
+;       |   |           |   |
+;       |   |           |   |
+;       |   |           |   |
+;       |   |           |   |
+;       |   |           |   |
+;  7F00 |---|      9F00 |---|
+;       |   |           |   |
+;       |   |           |   |
+;       |   |           |   |
+;       |   |           |   |
+;       |   |           |   |
+;  7FFF -----      9FFF -----       
+;
+; Overlap into System Bank, 256 bytes or less
+;
+;  7E80 -----      9E80 -----                  7F00 -----      9F00 -----  
+;       |   |           |   |                       |   |           |   |
+;       |   |           |   |                       |   |           |   |
+;       |   |           |   |                       |   |           |   |
+;       |   |           |   |                       |   |           |   |
+;       |   |           |   |                       |   |           |   |
+;  7F80 |---|      9F80 |---|                  8000 |---|      A000 |---| Bank Overlap
+;       |   |           |   |                       |   |           |///|
+;       |   |           |   |                       |   |           |///|
+;       |   |      A000 |---| Bank Overlap          |   |           |///|
+;       |   |           |///|                       |   |           |///|
+;       |   |           |///|                       |   |           |///|
+;  807F -----      A07F -----                  80FF -----      A0FF -----       
+;
+; Overlap into System Bank, >256 bytes
+;
+;  7F80 -----      9F80 -----  
+;       |   |           |   |
+;       |   |           |   |
+;       |   |      A000 |---| Bank Overlap
+;       |   |           |///|
+;       |   |           |///|
+;  8080 |---|      A080 |---|
+;       |   |           |///|
+;       |   |           |///|
+;       |   |           |///|
+;       |   |           |///|
+;       |   |           |///|
+;  817F -----      A17F -----       
+;
+;
+; Enter here for SosBuf = 7E01 to 7FFF
+;
+OlapCase:	
+            lda     SosBuf              ; init pointer
+            sta     Pointer
+            lda     #$9f
+            sta     Pointer+1
+            lda     #$00                
+            sta     Pointer+ExtPG       ; turn off extended addressing for pointer
+            sec                         ; find starting offset
+            sbc     SosBuf
+            sta     Offset              ; offset to start of overlap
+            tay                         ; Y contains offset
+
+            lda     ProCommand          ; lets check if its a write
+            cmp     #$02
+            beq     SetWrite            ; yes it is
+                                        ; else its a read
+            lda     SosBuf+1            ; check which case it is
+            cmp     #$7e
+            beq     case7e              ; case 7e01-7eff, need to copy the second 256 overlap
+            lda     SosBuf              ; must be 7f, now check lsb
+            beq     case7f00            ; if lsb=0 (7f00), do full second 256 overlap
+            jsr     CopyData            ; case 7f01-7fff, 256-offset + 256 bytes to save
+
+case7f00:   inc     Pointer+1           ; Set pointer msb to A0
+case7e:     inc     SosBuf+1            ; set SosBuf to second 256
+            jsr     CopyData           
+            dec     SosBuf+1            ; Restore SosBuf pointer
+            lda     SosBuf+1
+            jmp     BufOk               ; Now setup the rest of the pointers and return
+
+SetWrite:   jsr     SwapOvrlap
+            lda     SosBuf+1
+            jmp     BufOk               ; Now setup the rest of the pointers and return
+
+CopyData:   lda     (Pointer),Y
+            sta     (SosBuf),Y
+            iny
+            bne     CopyData
+            rts
+
+;
+; Check is its our overlap case and if it is then
+; Swap A000-A0xx or A000-A1xx with the previously saved data
+;
+
+CheckSwap:  bit     SosBuf+ExtPG        ; Check if extended addressing is enabled (xbyte bit7=1)
+            bpl     ItsOk               ; No, just return
+            lda     SosBuf+ExtPG        ; Check for special xbyte 8F
+            cmp     #$8f
+            beq     ItsOk               ; yes, just return
+            
+            lda     #$9f                ; Restore Pointer
+            sta     Pointer+1
+            ldy     Offset              ; get offset
+
+SwapOvrlap: lda     SosBuf+1            ; check for overlap case SosBuf=7E01-7FFF
+            cmp     #$7e
+            bcc     ItsOk               ; <7E, its ok, just return
+            beq     chklsb              ; is 7E, then check lsb
+            cmp     #$7f
+            bne     ItsOk               ; its ok, keep going
+            lda     SosBuf              ; else check lsb
+            beq     c7f00
+            bne     c7f
+
+chklsb:     lda     SosBuf
+            beq     ItsOk               ; 7E00 is ok, return
+            bne     c7e                 ; else notok, 7E01- swap data 
+
+c7f:        jsr     SwapData            ; 7f01-7fff -> swap a000-a0xx & a100-a1ff
+c7f00:      inc     Pointer+1           ; 7f00 -> swap a000-a0ff
+c7e:        inc     SosBuf+1            ; 7e01-7eff -> swap a000-a0xx
+            jsr     SwapData
+            dec     SosBuf+1            ; Restore SosBuf pointer
+ItsOk:      rts
+
+SwapData:   lda     (Pointer),Y
+            pha
+            lda     (SosBuf),Y 
+            sta     (Pointer),Y
+            pla
+            sta     (SosBuf),Y
+            iny
+            bne     SwapData
+            rts
+
+
+;
 ; jsr to card firmware driver
 ; We update the address based on the slot and firmware CxFF byte
 ;
 ProDriver:  sei                         ; disable interrupts while changing things
+            lda     #$FF
+            sta     E1908               ; E1908 = NON-ZERO LOCKOUT MOUSE
             jsr     SaveMem             ; save and swap in card screen hole & zeropage
             jsr     GoSlow
-ProDrvAdr:  jsr     $0000               ; Update this address
+            lda     Bank_Reg            ; remember current bank
+            sta     CurrBank
+            ldx     ProBank             ; get destination bank
+            jsr     Do_PDCall           ; go do device call, returns back to this bank
             sei                         ; Keep interrupts off incase card firmware reenabled
             jsr     GoFast
             jsr     RestMem             ; save and swap out card screen hole & zeropage
             lda     #$18                ; Clear CB1 & CB2 flags - VBL
             sta     E_IFR               ; this seems more for mame, its a little different
+            lda     #$00
+            sta     E1908               ; SAY OK TO MOUSE
             cli                         ; enable interrupts again
             rts
+
+;
+; This Code is moved to $18F0 so the bank can be switched
+; for block transfers to other than driver bank.
+; We update the driver entry point based on the slot and firmware CxFF byte + 3
+;
+;(Do_PDCall)
+Relcode:    stx     Bank_Reg            ; switch to new bank 
+ProDrvAdr:  jsr     $0000               ; call device entry
+            lda     CurrBank		    ; restore driver bank
+            sta     Bank_Reg
+            rts
+
+cdelen      =       *-Relcode
+
+
+
+;
+; Move code to page 18 for call to prodos block interface
+; to allow switching to other bank
+;
+
+MoveCode:   ldx     #cdelen-1
+@1:         lda     Relcode,x
+            sta     $18f0,x
+            dex
+            bpl     @1
+            rts            
+
+
 
 ;
 ; Save current screenholes and restore peripheral card values (current slot + slot0)
